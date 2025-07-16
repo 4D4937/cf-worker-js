@@ -1,38 +1,41 @@
 /**
- * Cloudflare Worker Page Management System
+ * Simple Wiki/CMS System for Cloudflare Workers
  * 
- * A lightweight CMS (Content Management System) built on Cloudflare Workers.
+ * This is a lightweight content management system that runs on Cloudflare Workers with KV storage.
+ * It provides basic wiki-like functionality including:
+ * 
  * Features:
- * - Create, edit, delete and list pages
- * - Support for text content and file uploads
- * - Basic authentication system
- * - File preview for images
- * - File download for other types
- * - Clean and responsive UI
+ * - Password protected admin access
+ * - Create, read, update, and delete pages
+ * - File upload support (including images)
+ * - Basic HTML and plain text content support
+ * - Simple and clean UI
+ * - Page listing and management
+ * - Page renaming capability
  * 
- * Main components:
- * 1. Authentication handler
- * 2. Page content server
- * 3. File upload handler
- * 4. Page management functions
- * 5. UI rendering functions
- *
- * Usage:
- * - Deploy to Cloudflare Workers
- * - Set up KV namespace
- * - Configure admin password
- * - Access via browser
- *
  * Security:
- * - Basic cookie-based authentication
- * - Password protection for admin functions
+ * - Admin authentication via password
+ * - Cookie-based session management
+ * - HttpOnly cookies for security
  * 
- * @author Original author
- * @version 1.0
+ * Technical Stack:
+ * - Runs on Cloudflare Workers
+ * - Uses Cloudflare KV for storage
+ * - Pure vanilla JavaScript/HTML/CSS
+ * - No external dependencies
+ * 
+ * Routes:
+ * - / : Service status
+ * - /l : List all pages (requires auth)
+ * - /new : Create new page form (requires auth)
+ * - /{page} : View page
+ * - /{page}/e : Edit page
+ * - /{page}/d : Delete page
+ * - /{page}/r/{newname} : Rename page
  */
-
-
-const ADMIN_PASSWORD = ''; // 修改为你的访问密码
+ 
+ 
+ const ADMIN_PASSWORD = ''; // Set your access password
 const AUTH_COOKIE_NAME = 'auth';
 const AUTH_COOKIE_VALUE = 'ok';
 
@@ -48,13 +51,12 @@ async function handleRequest(request) {
     if (path.length === 0) {
       return new Response(JSON.stringify({
         status: 'success',
-        message: 'Hello, I am working',
+        message: 'Service is running',
       }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-  
 
     if (path.length === 1 && path[0] === 'l') {
       const cookie = request.headers.get('Cookie') || '';
@@ -77,7 +79,7 @@ async function handleRequest(request) {
             }
           });
         } else {
-          return new Response(renderLoginForm('密码错误，请重试'), {
+          return new Response(renderLoginForm('Invalid password. Please try again.'), {
             status: 401,
             headers: { 'Content-Type': 'text/html; charset=utf-8' }
           });
@@ -88,6 +90,47 @@ async function handleRequest(request) {
         status: 200,
         headers: { 'Content-Type': 'text/html; charset=utf-8' }
       });
+    }
+
+    if (path.length === 1 && path[0] === 'new') {
+      const cookie = request.headers.get('Cookie') || '';
+      const authenticated = cookie.includes(`${AUTH_COOKIE_NAME}=${AUTH_COOKIE_VALUE}`);
+      
+      if (!authenticated) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      
+      return serveNewPageForm();
+    }
+
+    if (path.length === 1 && path[0] === 'create') {
+      const cookie = request.headers.get('Cookie') || '';
+      const authenticated = cookie.includes(`${AUTH_COOKIE_NAME}=${AUTH_COOKIE_VALUE}`);
+      
+      if (!authenticated) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+
+      if (request.method === 'POST') {
+        const formData = await request.formData();
+        const pageName = formData.get('pageName');
+        const content = formData.get('content');
+        
+        if (!pageName) {
+          return new Response('Page name is required', { status: 400 });
+        }
+        
+        try {
+          await KV.put(pageName, content || '');
+          return new Response('', {
+            status: 302,
+            headers: { 'Location': `/${pageName}` }
+          });
+        } catch (error) {
+          console.error('Error creating page:', error);
+          return new Response('Failed to create page', { status: 500 });
+        }
+      }
     }
 
     const key = path[0];
@@ -119,108 +162,161 @@ async function handleRequest(request) {
 
     return new Response('Not Found', { status: 404 });
   } catch (error) {
-    console.error('处理请求时发生错误:', error);
+    console.error('Error handling request:', error);
     return new Response('Internal Server Error', { status: 500 });
   }
 }
 
-// 登录表单渲染
 function renderLoginForm(errorMsg = '') {
   return `
     <!DOCTYPE html>
-    <html lang="zh">
+    <html>
     <head>
       <meta charset="UTF-8">
-      <title>请输入密码</title>
+      <title>Login</title>
       <style>
         body {
-          font-family: Arial, sans-serif;
-          background-color: #f7f7f7;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          margin: 0;
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
         }
-        .login-box {
-          background: white;
-          padding: 30px;
-          border-radius: 8px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-          text-align: center;
-          width: 100%;
-          max-width: 400px;
+        form {
+          margin: 20px 0;
         }
         input[type="password"] {
           width: 100%;
-          padding: 10px;
-          margin-top: 10px;
-          margin-bottom: 20px;
-          border: 1px solid #ccc;
-          border-radius: 5px;
+          padding: 8px;
+          margin: 8px 0;
+          border: 1px solid #ddd;
         }
         button {
-          padding: 10px 20px;
-          background-color: #5cb85c;
-          color: white;
+          padding: 8px 16px;
+          background: #000;
+          color: #fff;
           border: none;
-          border-radius: 5px;
           cursor: pointer;
         }
-        button:hover {
-          background-color: #4cae4c;
-        }
         .error {
-          color: red;
-          margin-bottom: 10px;
+          color: #d00;
+          margin: 10px 0;
         }
       </style>
     </head>
     <body>
-      <div class="login-box">
-        <h2>请输入访问密码</h2>
-        ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-        <form method="POST">
-          <input type="password" name="password" placeholder="密码" required />
-          <br />
-          <button type="submit">提交</button>
-        </form>
-      </div>
+      <h1>Login Required</h1>
+      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
+      <form method="POST">
+        <div>
+          <label for="password">Password:</label>
+          <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit">Submit</button>
+      </form>
     </body>
     </html>
   `;
 }
 
-/**
- * 提供页面内容
- * @param {Request} request - 客户端请求对象
- * @param {string} key - 页面键名
- * @returns {Response} 页面内容响应
- */
+function serveNewPageForm() {
+  const form = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Create New Page</title>
+      <style>
+        body {
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
+        }
+        form {
+          margin: 20px 0;
+        }
+        input[type="text"] {
+          width: 100%;
+          padding: 8px;
+          margin: 8px 0;
+          border: 1px solid #ddd;
+        }
+        textarea {
+          width: 100%;
+          height: 300px;
+          margin: 8px 0;
+          padding: 8px;
+          border: 1px solid #ddd;
+          font-family: monospace;
+        }
+        button {
+          padding: 8px 16px;
+          background: #000;
+          color: #fff;
+          border: none;
+          cursor: pointer;
+        }
+        .actions {
+          margin: 20px 0;
+        }
+        .actions a {
+          color: #000;
+          text-decoration: none;
+          margin-right: 15px;
+        }
+        .actions a:hover {
+          text-decoration: underline;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="actions">
+        <a href="/l">← Back to Pages</a>
+      </div>
+      <h1>Create New Page</h1>
+      <form action="/create" method="post">
+        <div>
+          <label for="pageName">Page Name:</label>
+          <input type="text" id="pageName" name="pageName" required>
+        </div>
+        <div>
+          <label for="content">Content:</label>
+          <textarea id="content" name="content"></textarea>
+        </div>
+        <button type="submit">Create Page</button>
+      </form>
+    </body>
+    </html>
+  `;
+  
+  return new Response(form, { 
+    status: 200, 
+    headers: { 'Content-Type': 'text/html; charset=utf-8' } 
+  });
+}
+
 async function servePage(request, key) {
   const data = await KV.get(key, { type: "text" });
   
   if (!data) {
-    return new Response('页面未找到', { 
+    return new Response('Page not found', { 
       status: 404, 
       headers: { 'Content-Type': 'text/plain; charset=utf-8' } 
     });
   }
   
-  // 尝试解析为JSON格式(文件存储)
   let parsedData;
   try {
     parsedData = JSON.parse(data);
   } catch (e) {
-    // 不是JSON，返回普通文本内容，使用pre标签保留格式
-    // 检查内容是否已经包含HTML标签
     if (/<html|<!DOCTYPE|<body|<div|<script|<style/i.test(data)) {
-      // 已经是HTML内容，直接返回
       return new Response(data, { 
         headers: { 'Content-Type': 'text/html; charset=utf-8' } 
       });
     } else {
-      // 纯文本内容，用pre标签包装以保留格式
       const escapedContent = data
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -228,50 +324,41 @@ async function servePage(request, key) {
         
       const htmlResponse = `
         <!DOCTYPE html>
-        <html lang="en">
+        <html>
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>${decodeURIComponent(key)}</title>
           <style>
             body {
-              font-family: Arial, sans-serif;
+              font-family: system-ui, -apple-system, sans-serif;
+              margin: 40px auto;
+              max-width: 650px;
               line-height: 1.6;
-              padding: 20px;
-              max-width: 900px;
-              margin: 0 auto;
+              padding: 0 10px;
             }
             pre {
-              white-space: pre-wrap;
-              word-wrap: break-word;
-              background-color: #f9f9f9;
-              border: 1px solid #ddd;
-              padding: 15px;
-              border-radius: 5px;
+              background: #f8f8f8;
+              padding: 16px;
               overflow-x: auto;
             }
-            .controls {
-              margin-bottom: 20px;
+            .actions {
+              margin: 20px 0;
             }
-            .controls a {
-              display: inline-block;
-              margin-right: 10px;
-              padding: 5px 10px;
-              background-color: #f0f0f0;
-              color: #333;
+            .actions a {
+              color: #000;
               text-decoration: none;
-              border-radius: 3px;
-              font-size: 14px;
+              margin-right: 15px;
             }
-            .controls a:hover {
-              background-color: #e0e0e0;
+            .actions a:hover {
+              text-decoration: underline;
             }
           </style>
         </head>
         <body>
-          <div class="controls">
-            <a href="/${key}/e">编辑</a>
-            <a href="/l">所有页面</a>
+          <div class="actions">
+            <a href="/${key}/e">Edit</a>
+            <a href="/l">All Pages</a>
           </div>
           <pre>${escapedContent}</pre>
         </body>
@@ -284,93 +371,59 @@ async function servePage(request, key) {
     }
   }
   
-  // 处理文件内容
   if (parsedData && parsedData.fileName) {
     const { fileName, mimeType, content } = parsedData;
     
-    // 图片预览
     if (mimeType.startsWith('image/')) {
       return serveImagePreview(content);
     } else {
-      // 文件下载
       return serveFileDownload(fileName, mimeType, content);
     }
   } else {
-    // 普通内容 (JSON但不是文件格式)
     return new Response(data, { 
       headers: { 'Content-Type': 'text/html; charset=utf-8' } 
     });
   }
 }
 
-/**
- * 展示图片预览页面
- * @param {string} imageContent - 包含base64图片数据的字符串
- * @returns {Response} 图片预览HTML页面
- */
 function serveImagePreview(imageContent) {
   const html = `<!DOCTYPE html>
-  <html lang="en">
+  <html>
     <head>
       <title>Image Preview</title>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body { 
-          margin: 0;
-          padding: 20px;
-          background-color: #f7f7f7;
-          min-height: 100vh;
-          font-family: Arial, sans-serif;
+        body {
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
         }
-        .container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
+        .actions {
+          margin: 20px 0;
         }
-        .controls {
-          width: 100%;
-          max-width: 900px;
-          margin-bottom: 20px;
-        }
-        .controls a {
-          display: inline-block;
-          margin-right: 10px;
-          padding: 5px 10px;
-          background-color: #f0f0f0;
-          color: #333;
+        .actions a {
+          color: #000;
           text-decoration: none;
-          border-radius: 3px;
-          font-size: 14px;
+          margin-right: 15px;
         }
-        .controls a:hover {
-          background-color: #e0e0e0;
+        .actions a:hover {
+          text-decoration: underline;
         }
-        .image-wrapper {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          background-color: white;
-          padding: 10px;
-          border-radius: 5px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        img { 
-          max-width: 100%; 
-          max-height: 80vh; 
+        img {
+          max-width: 100%;
+          height: auto;
         }
       </style>
     </head>
     <body>
-      <div class="container">
-        <div class="controls">
-          <a href="javascript:history.back()">返回</a>
-          <a href="/l">所有页面</a>
-        </div>
-        <div class="image-wrapper">
-          <img src="${imageContent}" alt="Image Preview">
-        </div>
+      <div class="actions">
+        <a href="javascript:history.back()">Back</a>
+        <a href="/l">All Pages</a>
       </div>
+      <img src="${imageContent}" alt="Image Preview">
     </body>
   </html>`;
   
@@ -379,13 +432,6 @@ function serveImagePreview(imageContent) {
   });
 }
 
-/**
- * 提供文件下载
- * @param {string} fileName - 文件名
- * @param {string} mimeType - 文件MIME类型
- * @param {string} content - 文件内容(base64格式)
- * @returns {Response} 文件下载响应
- */
 function serveFileDownload(fileName, mimeType, content) {
   const base64Content = content.split('base64,')[1];
   const binaryData = atob(base64Content);
@@ -403,91 +449,62 @@ function serveFileDownload(fileName, mimeType, content) {
   return new Response(arrayBuffer, { headers });
 }
 
-/**
- * 提供编辑表单页面
- * @param {string} key - 页面键名
- * @returns {Response} 编辑表单页面
- */
 async function serveEditForm(key) {
   const data = await KV.get(key, { type: "text" }) || "";
   
-  // 使用HTML实体编码来保存特殊字符
   const encodedData = data
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-    .replace(/\n/g, '&#10;')  // 换行符
-    .replace(/\r/g, '&#13;')  // 回车符
-    .replace(/\t/g, '&#9;');  // 制表符
+    .replace(/\n/g, '&#10;')
+    .replace(/\r/g, '&#13;')
+    .replace(/\t/g, '&#9;');
   
   const form = `
     <!DOCTYPE html>
-    <html lang="en">
+    <html>
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>编辑页面</title>
+      <title>Edit Page</title>
       <style>
         body {
-          font-family: Arial, sans-serif;
-          margin: 0;
-          padding: 20px;
-          display: flex;
-          justify-content: center;
-          align-items: flex-start;
-          min-height: 100vh;
-          background-color: #f7f7f7;
-        }
-        form {
-          width: 100%;
-          max-width: 800px;
-          background: #fff;
-          padding: 20px;
-          border-radius: 8px;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
         }
         textarea {
           width: 100%;
           height: 300px;
-          margin-bottom: 15px;
-          padding: 10px;
+          margin: 10px 0;
+          padding: 8px;
           border: 1px solid #ddd;
-          border-radius: 5px;
-          resize: vertical;
           font-family: monospace;
-          white-space: pre;
         }
         input[type="file"] {
-          margin-bottom: 15px;
-          width: 100%;
+          margin: 10px 0;
         }
         button {
-          background-color: #5cb85c;
-          color: white;
-          padding: 10px 20px;
+          padding: 8px 16px;
+          background: #000;
+          color: #fff;
           border: none;
-          border-radius: 5px;
           cursor: pointer;
-          font-size: 16px;
-        }
-        button:hover {
-          background-color: #4cae4c;
-        }
-        .form-title {
-          margin-top: 0;
-          margin-bottom: 20px;
-          color: #333;
         }
       </style>
     </head>
     <body>
+      <h1>Edit "${decodeURIComponent(key)}"</h1>
       <form action="/${key}/e" method="post" enctype="multipart/form-data">
-        <h2 class="form-title">编辑 "${decodeURIComponent(key)}"</h2>
         <textarea name="content">${encodedData}</textarea>
-        <input type="file" name="file">
-        <button type="submit">保存</button>
+        <div>
+          <input type="file" name="file">
+        </div>
+        <button type="submit">Save</button>
       </form>
     </body>
     </html>
@@ -499,12 +516,6 @@ async function serveEditForm(key) {
   });
 }
 
-/**
- * 保存页面内容
- * @param {Request} request - 客户端请求对象
- * @param {string} key - 页面键名
- * @returns {Response} 保存结果响应
- */
 async function savePage(request, key) {
   try {
     const formData = await request.formData();
@@ -513,7 +524,6 @@ async function savePage(request, key) {
     let value;
     
     if (file && file.size > 0) {
-      // 处理文件上传
       const imageBuffer = await file.arrayBuffer();
       const base64 = arrayBufferToBase64(imageBuffer);
       const mimeType = file.type;
@@ -524,29 +534,21 @@ async function savePage(request, key) {
         content: `data:${mimeType};base64,${base64}`
       });
     } else {
-      // 处理文本内容 - 保持原始格式不变
-      // 提交的表单内容会自动保留换行符和空格，无需额外处理
       value = content;
     }
     
     await KV.put(key, value);
     
-    // 重定向回页面
     return new Response('', { 
       status: 302,
       headers: { 'Location': `/${key}` }
     });
   } catch (error) {
-    console.error('保存页面时发生错误:', error);
-    return new Response('保存失败', { status: 500 });
+    console.error('Error saving page:', error);
+    return new Response('Save failed', { status: 500 });
   }
 }
 
-/**
- * 将ArrayBuffer转换为Base64
- * @param {ArrayBuffer} buffer - 二进制数据
- * @returns {string} Base64编码的字符串
- */
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -559,103 +561,65 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-/**
- * 删除页面
- * @param {string} key - 页面键名
- * @returns {Response} 删除结果响应
- */
 async function deletePage(key) {
   try {
     await KV.delete(key);
     
-    // 重定向到页面列表
     return new Response('', { 
       status: 302,
       headers: { 'Location': '/l' }
     });
   } catch (error) {
-    console.error('删除页面时发生错误:', error);
-    return new Response('删除失败', { status: 500 });
+    console.error('Error deleting page:', error);
+    return new Response('Delete failed', { status: 500 });
   }
 }
 
-/**
- * 确认删除页面
- * @param {string} key - 页面键名
- * @returns {Response} 确认删除页面
- */
 async function confirmDeletePage(key) {
   const decodedKey = decodeURIComponent(key);
   
   const page = `
     <!DOCTYPE html>
-    <html lang="en">
+    <html>
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>确认删除</title>
+      <title>Confirm Delete</title>
       <style>
         body {
-          font-family: Arial, sans-serif;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          margin: 0;
-          background-color: #f7f7f7;
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
         }
-        .container {
-          text-align: center;
-          background: #fff;
-          padding: 30px;
-          border-radius: 8px;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-          max-width: 500px;
-          width: 90%;
-        }
-        h2 {
-          margin-top: 0;
-          color: #333;
-        }
-        .buttons {
-          display: flex;
-          justify-content: center;
-          gap: 15px;
-          margin-top: 20px;
+        .actions {
+          margin: 20px 0;
         }
         button {
-          padding: 10px 20px;
+          padding: 8px 16px;
+          margin-right: 10px;
           border: none;
-          border-radius: 5px;
           cursor: pointer;
-          font-size: 16px;
         }
         .delete {
-          background-color: #d9534f;
-          color: white;
-        }
-        .delete:hover {
-          background-color: #c9302c;
+          background: #d00;
+          color: #fff;
         }
         .cancel {
-          background-color: #5bc0de;
-          color: white;
-        }
-        .cancel:hover {
-          background-color: #46b8da;
+          background: #000;
+          color: #fff;
         }
       </style>
     </head>
     <body>
-      <div class="container">
-        <h2>确认删除</h2>
-        <p>您确定要删除 "${decodedKey}" 页面吗？</p>
-        <div class="buttons">
-          <form action="/${key}/d" method="post">
-            <button type="submit" class="delete">删除</button>
-          </form>
-          <a href="/${key}"><button class="cancel">取消</button></a>
-        </div>
+      <h1>Confirm Delete</h1>
+      <p>Are you sure you want to delete "${decodedKey}"?</p>
+      <div class="actions">
+        <form action="/${key}/d" method="post" style="display: inline">
+          <button type="submit" class="delete">Delete</button>
+        </form>
+        <a href="/${key}"><button class="cancel">Cancel</button></a>
       </div>
     </body>
     </html>
@@ -667,10 +631,6 @@ async function confirmDeletePage(key) {
   });
 }
 
-/**
- * 列出所有页面
- * @returns {Response} 页面列表响应
- */
 async function listPages() {
   try {
     const keysResult = await KV.list();
@@ -681,73 +641,43 @@ async function listPages() {
     
     return serveListPage(keysResult.keys);
   } catch (error) {
-    console.error('列出页面时发生错误:', error);
-    return new Response('列出页面时发生错误', { 
+    console.error('Error listing pages:', error);
+    return new Response('Error listing pages', { 
       status: 500, 
       headers: { 'Content-Type': 'text/html; charset=utf-8' } 
     });
   }
 }
 
-/**
- * 提供空页面列表页面
- * @returns {Response} 空页面列表页面
- */
 function serveEmptyListPage() {
   const page = `
     <!DOCTYPE html>
-    <html lang="en">
+    <html>
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>页面列表</title>
+      <title>Pages</title>
       <style>
         body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          margin: 0;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          background-color: #f7f7f7;
-        }
-        #list-container {
-          width: 80%;
-          max-width: 600px;
-          background: #fff;
-          padding: 30px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          border-radius: 8px;
-          text-align: center;
-        }
-        h1 {
-          color: #333;
-          margin-top: 0;
-        }
-        p {
-          color: #666;
-          margin-bottom: 20px;
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
         }
         .create-new {
           display: inline-block;
-          margin-top: 15px;
-          padding: 10px 20px;
-          background-color: #5cb85c;
-          color: white;
+          padding: 8px 16px;
+          background: #000;
+          color: #fff;
           text-decoration: none;
-          border-radius: 5px;
-        }
-        .create-new:hover {
-          background-color: #4cae4c;
         }
       </style>
     </head>
     <body>
-      <div id="list-container">
-        <h1>页面列表</h1>
-        <p>当前没有任何页面</p>
-        <a href="/new-page/e" class="create-new">创建新页面</a>
-      </div>
+      <h1>Pages</h1>
+      <p>No pages found</p>
+      <a href="/new" class="create-new">Create New Page</a>
     </body>
     </html>
   `;
@@ -758,116 +688,78 @@ function serveEmptyListPage() {
   });
 }
 
-/**
- * 提供页面列表页面
- * @param {Array} keys - 页面键数组
- * @returns {Response} 页面列表页面
- */
 function serveListPage(keys) {
-  // 排序并生成列表HTML
   const sortedKeys = [...keys].sort((a, b) => 
     decodeURIComponent(a.name).localeCompare(decodeURIComponent(b.name))
   );
   
   const listHtml = sortedKeys.map(key => 
     `<li>
-      <div class="page-entry">
-        <a href="/${key.name}" class="page-link">${decodeURIComponent(key.name)}</a>
-        <div class="actions">
-          <a href="/${key.name}/e" class="edit" title="编辑">✏️</a>
-          <a href="/${key.name}/d" class="delete" title="删除">🗑️</a>
-        </div>
-      </div>
+      <a href="/${key.name}">${decodeURIComponent(key.name)}</a>
+      <span class="actions">
+        <a href="/${key.name}/e">Edit</a>
+        <a href="/${key.name}/d">Delete</a>
+      </span>
     </li>`
   ).join('');
   
   const page = `
     <!DOCTYPE html>
-    <html lang="en">
+    <html>
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>页面列表</title>
+      <title>Pages</title>
       <style>
         body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          margin: 0;
-          padding: 20px;
-          background-color: #f7f7f7;
-          display: flex;
-          justify-content: center;
-        }
-        #list-container {
-          width: 100%;
-          max-width: 800px;
-          background: #fff;
-          padding: 30px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          border-radius: 8px;
-        }
-        h1 {
-          color: #333;
-          margin-top: 0;
-          margin-bottom: 20px;
+          font-family: system-ui, -apple-system, sans-serif;
+          margin: 40px auto;
+          max-width: 650px;
+          line-height: 1.6;
+          padding: 0 10px;
         }
         ul {
           list-style: none;
           padding: 0;
-          margin: 0;
         }
         li {
-          margin-bottom: 4px;
-        }
-        .page-entry {
+          padding: 8px 0;
+          border-bottom: 1px solid #eee;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 12px 15px;
-          border-radius: 4px;
-          background-color: #f9f9f9;
-          transition: background-color 0.2s;
         }
-        .page-entry:hover {
-          background-color: #f0f0f0;
-        }
-        .page-link {
-          color: #0366d6;
+        a {
+          color: #000;
           text-decoration: none;
-          flex-grow: 1;
-          font-size: 16px;
         }
-        .page-link:hover {
+        a:hover {
           text-decoration: underline;
         }
         .actions {
-          display: flex;
-          gap: 10px;
+          font-size: 0.9em;
         }
         .actions a {
-          text-decoration: none;
-          font-size: 16px;
+          margin-left: 10px;
         }
         .create-new {
           display: inline-block;
-          margin-top: 20px;
-          padding: 10px 20px;
-          background-color: #5cb85c;
-          color: white;
+          padding: 8px 16px;
+          background: #000;
+          color: #fff;
           text-decoration: none;
-          border-radius: 5px;
-          font-size: 16px;
+          margin-top: 20px;
         }
         .create-new:hover {
-          background-color: #4cae4c;
+          text-decoration: none;
+          opacity: 0.9;
         }
       </style>
     </head>
     <body>
-      <div id="list-container">
-        <h1>页面列表</h1>
-        <ul>${listHtml}</ul>
-        <a href="/new-page/e" class="create-new">创建新页面</a>
-      </div>
+      <h1>Pages</h1>
+      <ul>${listHtml}</ul>
+      <a href="/new" class="create-new">Create New Page</a>
     </body>
     </html>
   `;
@@ -878,18 +770,12 @@ function serveListPage(keys) {
   });
 }
 
-/**
- * 重命名页面
- * @param {string} oldKey - 原页面键名
- * @param {string} newKey - 新页面键名
- * @returns {Response} 重命名结果响应
- */
 async function renamePage(oldKey, newKey) {
   try {
     const data = await KV.get(oldKey);
     
     if (!data) {
-      return new Response('原页面未找到', { 
+      return new Response('Original page not found', { 
         status: 404,
         headers: { 'Content-Type': 'text/plain; charset=utf-8' }
       });
@@ -898,13 +784,12 @@ async function renamePage(oldKey, newKey) {
     await KV.put(newKey, data);
     await KV.delete(oldKey);
     
-    // 重定向到新页面
     return new Response('', { 
       status: 302,
       headers: { 'Location': `/${newKey}` }
     });
   } catch (error) {
-    console.error('重命名页面时发生错误:', error);
-    return new Response('重命名失败', { status: 500 });
+    console.error('Error renaming page:', error);
+    return new Response('Rename failed', { status: 500 });
   }
 }
